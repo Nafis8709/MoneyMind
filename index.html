@@ -939,7 +939,8 @@ function Dashboard({data,ms,currentMonth,addToast,onNeedSetup,onTabChange}){
     return new Date(todayStr.slice(0,7)+'-'+DIMv.toString().padStart(2,'0')+'T00:00:00');
   })();
   const daysLeft=Math.max(1,Math.round((cycleEnd-new Date(todayStr+'T00:00:00'))/(1000*60*60*24)));
-  const adjDaily=moLeft>0&&daysLeft>0?Math.max(0,moLeft/daysLeft-fixedD):0;
+  const moLeftPrev=spendBudget-(moSpent-todaySpent);
+  const adjDaily=moLeftPrev>0&&daysLeft>0?Math.max(0,moLeftPrev/daysLeft-fixedD):0;
   const isOver=moLeft<0;
   // overspend stats — simple and correct
   const totalOver=isOver?moSpent-spendBudget:0;        // total ৳ over budget
@@ -1297,7 +1298,8 @@ function ExpensesTab({data,ms,currentMonth,onDataChange,addToast,userId}){
     return new Date(todayStr.slice(0,7)+'-'+DIMv.toString().padStart(2,'0')+'T00:00:00');
   })();
   const daysLeft=Math.max(1,Math.round((cycleEndE-new Date(todayStr+'T00:00:00'))/(1000*60*60*24)));
-  const adjDaily=moLeft>0?Math.max(0,moLeft/daysLeft-fixedD):0;
+  const todaySpentE=expenses.filter(e=>e.date===todayStr).reduce((a,e)=>a+e.amount,0);
+  const adjDaily=(spendBudget-(moSpent-todaySpentE))>0?Math.max(0,(spendBudget-(moSpent-todaySpentE))/daysLeft-fixedD):0;
   const isOver=moLeft<0;
   const isGfd=guiltyFreeDays.includes(todayStr);
 
