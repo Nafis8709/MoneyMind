@@ -667,7 +667,7 @@ const decodeJwt=token=>{try{const b=token.split(".")[1];const pad=b.length%4?b+"
 
 const lsg=(k,d=null)=>{try{const v=localStorage.getItem(k);return v!=null?JSON.parse(v):d;}catch{return d;}};
 const lss=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
-const emptyData=()=>({months:{},expenses:[],goals:[],recurringCosts:[],customCats:[],guiltyFreeDays:[],payDay:null,darkMode:false});
+const emptyData=()=>({months:{},expenses:[],goals:[],recurringCosts:[],customCats:[],guiltyFreeDays:[],payDay:null,darkMode:false,distributionHistory:[]});
 
 /* ── Auth ── */
 const Auth={
@@ -1671,14 +1671,29 @@ function ExpensesTab({data,ms,currentMonth,onDataChange,addToast,userId}){
 }
 
 function GoalsTab({data,ms,onDataChange,addToast,userId}){
-  const{goals=[]}=data;
+  const{goals=[],distributionHistory=[]}=data;
   const effSave=ms?.saveTarget||0;
   const[name,setName]=useState("");const[target,setTarget]=useState("");const[saved,setSaved]=useState("");const[emoji,setEmoji]=useState("🎯");
   const[expanded,setExpanded]=useState(null);const[addAmts,setAddAmts]=useState({});const[showAdd,setShowAdd]=useState(false);
+  const[showAlloc,setShowAlloc]=useState(false);
+  const[allocEdits,setAllocEdits]=useState({});
+
+  const currentMonth=todayISO().slice(0,7);
+  const alreadyDistributed=distributionHistory.some(d=>d.month===currentMonth);
+  const activeGoals=goals.filter(g=>g.saved<g.target);
+  const totalAlloc=activeGoals.reduce((a,g)=>a+(Number(allocEdits[g.id]??g.alloc??0)),0);
+  const allocOk=Math.abs(totalAlloc-100)<0.01;
 
   const addGoal=()=>{
     if(!name||!target)return;
-    const nd={...data,goals:[...goals,{id:uid(),name:name.trim(),target:+target,saved:+(saved||0),emoji}]};
+    // auto-split alloc evenly among all active goals including new one
+    const newGoal={id:uid(),name:name.trim(),target:+target,saved:+(saved||0),emoji,alloc:0};
+    const allActive=[...goals.filter(g=>g.saved<g.target),newGoal];
+    const even=Math.floor(100/allActive.length);
+    const rem=100-even*(allActive.length-1);
+    const updatedGoals=goals.map((g,i)=>g.saved<g.target?{...g,alloc:even}:g);
+    newGoal.alloc=rem;
+    const nd={...data,goals:[...updatedGoals,newGoal]};
     const s=saveData(userId,nd);onDataChange({...s});
     setName("");setTarget("");setSaved("");setEmoji("🎯");setShowAdd(false);
   };
@@ -1691,6 +1706,26 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
     if(g&&g.saved+Number(a)>=g.target)addToast({type:"s",icon:"🎉",title:"Goal reached!",msg:`You've saved enough for ${g.name}!`});
   };
   const delGoal=id=>{const nd={...data,goals:goals.filter(g=>g.id!==id)};const s=saveData(userId,nd);onDataChange({...s});};
+
+  const saveAllocs=()=>{
+    const ng=goals.map(g=>({...g,alloc:Number(allocEdits[g.id]??g.alloc??0)}));
+    const nd={...data,goals:ng};const s=saveData(userId,nd);onDataChange({...s});
+    setAllocEdits({});setShowAlloc(false);
+    addToast({type:"s",icon:"✅",title:"Allocations saved",msg:"Savings will distribute at end of cycle."});
+  };
+
+  const distribute=()=>{
+    if(alreadyDistributed||!allocOk||effSave<=0)return;
+    const ng=goals.map(g=>{
+      const pct=(g.alloc||0)/100;
+      const amt=Math.round(effSave*pct);
+      return{...g,saved:Math.min(g.saved+amt,g.target)};
+    });
+    const record={month:currentMonth,amount:effSave,breakdown:goals.map(g=>({id:g.id,name:g.name,alloc:g.alloc||0,received:Math.round(effSave*(g.alloc||0)/100)}))};
+    const nd={...data,goals:ng,distributionHistory:[...(distributionHistory||[]),record]};
+    const s=saveData(userId,nd);onDataChange({...s});
+    addToast({type:"s",icon:"💰",title:"Savings distributed!",msg:`৳${fmt(effSave)} split across ${activeGoals.length} goals.`});
+  };
 
   const GCOLS=["var(--plum)","var(--gold)","var(--green)","var(--blue)"];
   const GBGS=["var(--plumdim)","var(--golddim)","var(--greendim)","var(--bluedim)"];
@@ -1705,7 +1740,10 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
             {goals.length} goal{goals.length!==1?"s":""} · saving {fmt(effSave)}/month
           </div>
         </div>
-        <button className="btn btn-gold" onClick={()=>setShowAdd(p=>!p)}>{showAdd?"✕ Cancel":"＋ New Goal"}</button>
+        <div style={{display:"flex",gap:8}}>
+          {activeGoals.length>0&&<button className="btn" style={{background:"var(--bluedim)",color:"var(--blue)",border:"1.5px solid rgba(74,133,201,.25)"}} onClick={()=>setShowAlloc(p=>!p)}>{showAlloc?"✕ Close":"⚙ Allocate"}</button>}
+          <button className="btn btn-gold" onClick={()=>setShowAdd(p=>!p)}>{showAdd?"✕ Cancel":"＋ New Goal"}</button>
+        </div>
       </div>
 
       {showAdd&&(
@@ -1733,6 +1771,81 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
         </div>
       )}
 
+      {/* ── Allocation Panel ── */}
+      {showAlloc&&activeGoals.length>0&&(
+        <div style={{background:"linear-gradient(135deg,rgba(74,133,201,.04),rgba(53,96,168,.02))",border:"1.5px solid rgba(74,133,201,.25)",borderRadius:16,padding:20}} className="fade-in">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <div style={{fontFamily:"var(--serif)",fontWeight:700,fontSize:18,color:"var(--blue)"}}>Distribute Monthly Savings</div>
+            <div style={{fontFamily:"var(--mono)",fontSize:11,fontWeight:700,color:allocOk?"var(--green)":Math.abs(totalAlloc-100)<5?"var(--gold)":"var(--red)"}}>
+              {Math.round(totalAlloc)}% / 100%
+            </div>
+          </div>
+          <div style={{fontSize:12,color:"var(--faint)",marginBottom:16}}>Set what % of your ৳{fmt(effSave)}/mo savings goes to each goal. Must total 100%.</div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+            {activeGoals.map((g,i)=>{
+              const col=GCOLS[i%4];
+              const val=allocEdits[g.id]!==undefined?allocEdits[g.id]:(g.alloc||0);
+              const preview=Math.round(effSave*(Number(val)||0)/100);
+              return(
+                <div key={g.id} style={{display:"grid",gridTemplateColumns:"32px 1fr 80px 80px",gap:10,alignItems:"center",background:"var(--card)",border:"1.5px solid var(--rule)",borderRadius:10,padding:"10px 14px"}}>
+                  <span style={{fontSize:22}}>{g.emoji}</span>
+                  <div>
+                    <div style={{fontFamily:"var(--sans)",fontWeight:600,fontSize:13,color:"var(--ink)"}}>{g.name}</div>
+                    <div style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--faint)"}}>৳{fmt(preview)}/mo</div>
+                  </div>
+                  <div style={{position:"relative"}}>
+                    <input
+                      className="inp inp-num"
+                      type="number" min="0" max="100" step="1"
+                      value={val}
+                      onChange={e=>setAllocEdits(p=>({...p,[g.id]:e.target.value}))}
+                      style={{paddingRight:20,textAlign:"right",borderColor:col}}
+                    />
+                    <span style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",fontSize:11,color:"var(--faint)",pointerEvents:"none"}}>%</span>
+                  </div>
+                  <div style={{background:"var(--wash)",borderRadius:99,height:6,overflow:"hidden"}}>
+                    <div style={{height:6,borderRadius:99,background:col,width:Math.min(100,Number(val)||0)+"%",transition:"width .3s"}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+            <button className="btn btn-gold" disabled={!allocOk} onClick={saveAllocs} style={{opacity:allocOk?1:.5}}>
+              💾 Save Allocations
+            </button>
+            {effSave>0&&allocOk&&(
+              <button
+                onClick={distribute}
+                disabled={alreadyDistributed}
+                style={{padding:"9px 18px",border:"none",borderRadius:10,cursor:alreadyDistributed?"not-allowed":"pointer",fontFamily:"var(--sans)",fontWeight:700,fontSize:13,
+                  background:alreadyDistributed?"var(--tint)":"linear-gradient(135deg,#2d7a52,#3a9e6a)",
+                  color:alreadyDistributed?"var(--faint)":"#fff",transition:"all .2s"}}>
+                {alreadyDistributed?"✓ Distributed this month":"💰 Distribute This Month's Savings"}
+              </button>
+            )}
+            {alreadyDistributed&&<span style={{fontSize:11,color:"var(--green)",fontWeight:600}}>✓ Already distributed for {currentMonth}</span>}
+            {!allocOk&&<span style={{fontSize:11,color:"var(--red)",fontWeight:600}}>Allocations must total exactly 100%</span>}
+          </div>
+
+          {/* Distribution history */}
+          {distributionHistory.length>0&&(
+            <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid var(--rule)"}}>
+              <div style={{fontFamily:"var(--sans)",fontSize:11,fontWeight:700,color:"var(--faint)",textTransform:"uppercase",letterSpacing:.8,marginBottom:8}}>Distribution History</div>
+              {[...distributionHistory].reverse().slice(0,6).map((d,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11,color:"var(--faint)",padding:"4px 0",borderBottom:"1px solid var(--rule)"}}>
+                  <span style={{fontFamily:"var(--mono)"}}>{d.month}</span>
+                  <span style={{fontFamily:"var(--mono)",color:"var(--green)",fontWeight:600}}>+{fmt(d.amount)}</span>
+                  <span>{d.breakdown.map(b=>`${b.name} ${b.alloc}%`).join(" · ")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {goals.length===0?(
         <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"64px 24px",color:"var(--faint)",textAlign:"center"}}>
           <div style={{fontFamily:"var(--serif)",fontSize:64,marginBottom:16,opacity:.5}}>◎</div>
@@ -1746,8 +1859,10 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
             const bgd=GBGS[i%4];
             const pct=Math.min(100,Math.round(g.saved/g.target*100));
             const rem=Math.max(0,g.target-g.saved);
+            const alloc=g.alloc||0;
+            const moFromAlloc=alloc>0&&effSave>0?Math.ceil(rem/(effSave*alloc/100)):null;
             const baseMo=effSave>0?Math.ceil(rem/effSave):null;
-            const baseDate=baseMo?addMo(new Date(),baseMo):null;
+            const baseDate=moFromAlloc?addMo(new Date(),moFromAlloc):baseMo?addMo(new Date(),baseMo):null;
             const isOpen=expanded===g.id;
             const scenarios=effSave>0?[
               {l:"Current plan",s:effSave,c:col},
@@ -1764,6 +1879,7 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
                   <span style={{fontSize:36,lineHeight:1}}>{g.emoji}</span>
                   <div style={{display:"flex",gap:5,alignItems:"center"}}>
                     {pct>=100&&<span className="badge bg">✓ Done!</span>}
+                    {alloc>0&&<span style={{background:bgd,color:col,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,border:"1.5px solid",borderColor:"rgba(0,0,0,.1)"}}>{alloc}%</span>}
                     <button className="btn-del" onClick={()=>delGoal(g.id)}>✕</button>
                   </div>
                 </div>
@@ -1778,14 +1894,14 @@ function GoalsTab({data,ms,onDataChange,addToast,userId}){
                   <span style={{fontFamily:"var(--mono)"}}>{pct}%</span>
                 </div>
 
-                {baseMo&&pct<100&&(
+                {baseDate&&pct<100&&(
                   <div style={{background:bgd,border:"1.5px solid",borderColor:"rgba(0,0,0,.12)",borderRadius:11,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div>
-                      <div style={{fontFamily:"var(--sans)",fontSize:10,fontWeight:700,color:col,textTransform:"uppercase",letterSpacing:.8}}>At your savings rate</div>
-                      <div style={{fontFamily:"var(--sans)",fontSize:11,color:"var(--faint)",marginTop:1}}>{fmt(effSave)}/month</div>
+                      <div style={{fontFamily:"var(--sans)",fontSize:10,fontWeight:700,color:col,textTransform:"uppercase",letterSpacing:.8}}>{alloc>0?"At your allocation":"At your savings rate"}</div>
+                      <div style={{fontFamily:"var(--sans)",fontSize:11,color:"var(--faint)",marginTop:1}}>{alloc>0?`${alloc}% of ${fmt(effSave)}/mo = ${fmt(Math.round(effSave*alloc/100))}/mo`:`${fmt(effSave)}/month`}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
-                      <div style={{fontFamily:"var(--serif)",fontWeight:700,fontSize:28,color:col,lineHeight:1}}>{baseMo}<span style={{fontSize:14}}> mo</span></div>
+                      <div style={{fontFamily:"var(--serif)",fontWeight:700,fontSize:28,color:col,lineHeight:1}}>{moFromAlloc||baseMo}<span style={{fontSize:14}}> mo</span></div>
                       <div style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--faint)"}}>{MSHT[baseDate.getMonth()]} {baseDate.getFullYear()}</div>
                     </div>
                   </div>
