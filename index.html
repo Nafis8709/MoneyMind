@@ -942,7 +942,8 @@ function Dashboard({data,ms,currentMonth,addToast,onNeedSetup,onTabChange}){
   const moLeftPrev=spendBudget-(moSpent-todaySpent);
   const adjDaily=moLeftPrev>0&&daysLeft>0?Math.max(0,moLeftPrev/daysLeft-fixedD):0;
   const isOver=moLeft<0;
-  const isTodayOver=!isOver&&todaySpent>(adjDaily||dailyLim);
+  const isDeficit=!isOver&&adjDaily<dailyLim&&todaySpent<=(adjDaily||dailyLim);
+  const isTodayOver=!isOver&&!isDeficit&&todaySpent>(adjDaily||dailyLim);
   // overspend stats — simple and correct
   const totalOver=isOver?moSpent-spendBudget:0;        // total ৳ over budget
   const daysPassed=Math.max(1,DOMv);                    // days elapsed
@@ -1031,22 +1032,22 @@ function Dashboard({data,ms,currentMonth,addToast,onNeedSetup,onTabChange}){
 
         {/* Hero card */}
         <div style={{...cardStyle,padding:"24px 28px",position:"relative",overflow:"hidden"}}>
-          <div style={{position:"absolute",top:-50,right:-50,width:200,height:200,background:isOver||isTodayOver?"radial-gradient(circle,rgba(184,56,56,.06),transparent 70%)":"radial-gradient(circle,rgba(184,113,26,.07),transparent 70%)",pointerEvents:"none"}}/>
+          <div style={{position:"absolute",top:-50,right:-50,width:200,height:200,background:isOver||isTodayOver?"radial-gradient(circle,rgba(184,56,56,.06),transparent 70%)":isDeficit?"radial-gradient(circle,rgba(184,113,26,.08),transparent 70%)":"radial-gradient(circle,rgba(184,113,26,.07),transparent 70%)",pointerEvents:"none"}}/>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
-            <div style={{fontFamily:"var(--mono)",fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:isOver||isTodayOver?"var(--red)":"var(--gold)"}}>{isOver?"// over_budget":isTodayOver?"// today_overspent":"// todays_adjusted_limit"}</div>
+            <div style={{fontFamily:"var(--mono)",fontSize:9,letterSpacing:"2px",textTransform:"uppercase",color:isOver||isTodayOver?"var(--red)":isDeficit?"var(--gold)":"var(--gold)"}}>{isOver?"// over_budget":isTodayOver?"// today_overspent":isDeficit?"// behind_schedule":"// todays_adjusted_limit"}</div>
             {streak>=3&&<span className="streak-badge">🔥 {streak} day streak</span>}
             {isGfd&&<span style={{background:"var(--greendim)",color:"var(--green)",fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:999,border:"1.5px solid rgba(45,122,82,.25)"}}>😌 Guilt-Free Day</span>}
           </div>
           <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:6}}>
-            <div style={{fontFamily:"var(--serif)",fontWeight:700,fontSize:58,lineHeight:1,letterSpacing:"-.04em",color:isOver||isTodayOver?"var(--red)":"var(--ink)"}}>
-              {isOver?fmt(totalOver):isTodayOver?fmt(todaySpent-(adjDaily||dailyLim)):fmt(Math.max(0,adjDaily||dailyLim))}
+            <div style={{fontFamily:"var(--serif)",fontWeight:700,fontSize:58,lineHeight:1,letterSpacing:"-.04em",color:isOver||isTodayOver?"var(--red)":isDeficit?"var(--gold)":"var(--ink)"}}>
+              {isOver?fmt(totalOver):isTodayOver?fmt(todaySpent-(adjDaily||dailyLim)):isDeficit?fmt(adjDaily-dailyLim):fmt(Math.max(0,adjDaily||dailyLim))}
             </div>
-            <div style={{fontSize:14,color:isOver||isTodayOver?"var(--red)":"var(--faint)",fontFamily:"var(--sans)",fontWeight:isOver?700:400}}>{isOver?"total overspent":isTodayOver?"over today's limit":"/day"}</div>
+            <div style={{fontSize:14,color:isOver||isTodayOver?"var(--red)":isDeficit?"var(--gold)":"var(--faint)",fontFamily:"var(--sans)",fontWeight:isOver?700:400}}>{isOver?"total overspent":isTodayOver?"over today's limit":isDeficit?"/day (behind)":"/day"}</div>
           </div>
           <div style={{fontSize:12,color:"var(--faint)",marginBottom:14,lineHeight:1.7}}>
             {isOver
               ?<span style={{color:"var(--red)",fontWeight:600}}>৳{fmt(totalOver)} over budget · {daysLeft} days left to recover</span>
-              :isTodayOver?<span style={{color:"var(--red)",fontWeight:600}}>Spent {fmt(todaySpent)} today · limit {fmt(adjDaily||dailyLim)}/day · adjusts tomorrow</span>:<span>Monthly budget <span style={{color:"var(--gold)",fontWeight:600}}>{fmt(spendBudget)}</span> · base <span style={{color:"var(--ink2)",fontWeight:600}}>{fmt(dailyLim)}/day</span> · {daysLeft} days left</span>}
+              :isTodayOver?<span style={{color:"var(--red)",fontWeight:600}}>Spent {fmt(todaySpent)} today · limit {fmt(adjDaily||dailyLim)}/day · adjusts tomorrow</span>:isDeficit?<span style={{color:"var(--gold)",fontWeight:600}}>৳{fmt(dailyLim-adjDaily)} behind from previous days · base {fmt(dailyLim)}/day</span>:<span>Monthly budget <span style={{color:"var(--gold)",fontWeight:600}}>{fmt(spendBudget)}</span> · base <span style={{color:"var(--ink2)",fontWeight:600}}>{fmt(dailyLim)}/day</span> · {daysLeft} days left</span>}
           </div>
 
           {/* Recurring breakdown — only when not over and recurring exists */}
@@ -1175,7 +1176,7 @@ function Dashboard({data,ms,currentMonth,addToast,onNeedSetup,onTabChange}){
           <div style={{marginBottom:16}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:7,fontSize:12}}>
               <span style={{color:"var(--faint)"}}>Spending</span>
-              <span style={{fontFamily:"var(--mono)",fontWeight:700,color:isOver||isTodayOver?"var(--red)":"var(--gold)",fontSize:12}}>{fmt(moSpent)} / {fmt(spendBudget)}</span>
+              <span style={{fontFamily:"var(--mono)",fontWeight:700,color:isOver||isTodayOver?"var(--red)":isDeficit?"var(--gold)":"var(--gold)",fontSize:12}}>{fmt(moSpent)} / {fmt(spendBudget)}</span>
             </div>
             <PBar val={moSpent} max={spendBudget||1} h={9} color={isOver?"#b83838":"#b8711a"} warn={isOver}/>
             <div style={{display:"flex",justifyContent:"space-between",marginTop:5,fontSize:10,color:"var(--ghost)"}}>
@@ -1357,7 +1358,7 @@ function ExpensesTab({data,ms,currentMonth,onDataChange,addToast,userId}){
         {/* Status strip */}
         {ms&&(
           <div style={{padding:"16px 18px 14px",background:isOver?"linear-gradient(160deg,rgba(184,56,56,.06),transparent)":"linear-gradient(160deg,rgba(184,113,26,.04),transparent)",borderBottom:"1.5px solid var(--rule)"}}>
-            <div style={{fontFamily:"var(--mono)",fontSize:8,letterSpacing:"2px",textTransform:"uppercase",color:isOver||isTodayOver?"var(--red)":"var(--gold)",opacity:.7,marginBottom:8}}>
+            <div style={{fontFamily:"var(--mono)",fontSize:8,letterSpacing:"2px",textTransform:"uppercase",color:isOver||isTodayOver?"var(--red)":isDeficit?"var(--gold)":"var(--gold)",opacity:.7,marginBottom:8}}>
               {isOver?"⚠ over budget":"// daily allowance"}
             </div>
             <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:4}}>
